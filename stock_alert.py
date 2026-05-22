@@ -32,43 +32,6 @@ def save_cache(cache):
         json.dump(cache, f)
 
 
-# ---------------- EMAIL ----------------
-def send_email(shop, items):
-    # fjern ugyldige/tomme entries
-    clean_items = []
-
-    for t, u, s in items:
-        if not t or not u:
-            continue
-
-        # ikke send entrypoint
-        if u.rstrip("/") in [
-            v.rstrip("/") for v in SITES.values()
-        ]:
-            continue
-
-        clean_items.append((t, u, s))
-
-    # STOPP tom mail
-    if not clean_items:
-        print(f"{shop}: ingen gyldige produkter → ingen mail")
-        return
-
-    html = "".join(
-        f"<li><a href='{u}'>{t} [{s}]</a></li>"
-        for t, u, s in clean_items
-    )
-
-    resend.Emails.send({
-        "from": "Alert <onboarding@resend.dev>",
-        "to": [EMAIL_TO],
-        "subject": f"🔥 {shop}: {len(clean_items)} produkter",
-        "html": f"<h2>{shop}</h2><ul>{html}</ul>"
-    })
-
-    print(f"{shop}: mail sendt ({len(clean_items)} produkter)")
-
-
 # ---------------- MATCHING ----------------
 def is_match(text):
     t = (text or "").lower()
@@ -78,9 +41,6 @@ def is_match(text):
         "prismatic",
         "destined rivals",
         "ascended",
-        "pikachu",
-        "pokemon",
-        "perm",
         "chaos rising"
     ]
 
@@ -89,62 +49,51 @@ def is_match(text):
 
 # ---------------- BUTTON STATE ----------------
 def get_button_state(page):
-    try:
-        buttons = page.query_selector_all("button, a, input")
+    buttons = page.query_selector_all("button, a, input")
 
-        for b in buttons:
-            try:
-                text = (b.inner_text() or "").lower()
+    for b in buttons:
+        try:
+            text = (b.inner_text() or "").lower()
 
-                disabled = b.get_attribute("disabled")
-                aria_disabled = b.get_attribute("aria-disabled")
+            disabled = b.get_attribute("disabled")
+            aria_disabled = b.get_attribute("aria-disabled")
 
-                if any(x in text for x in [
-                    "handlekurv",
-                    "kjøp",
-                    "buy",
-                    "add to cart"
-                ]):
-                    if disabled or aria_disabled == "true":
-                        return "DISABLED"
+            if any(x in text for x in [
+                "handlekurv",
+                "kjøp",
+                "buy",
+                "add to cart"
+            ]):
+                if disabled or aria_disabled == "true":
+                    return "DISABLED"
 
-                    return "ACTIVE"
+                return "ACTIVE"
 
-            except:
-                continue
-
-    except:
-        pass
+        except:
+            continue
 
     return "MISSING"
 
 
 # ---------------- STOCK SIGNAL ----------------
 def get_stock_signal(page):
-    try:
-        body = (page.inner_text("body") or "").lower()
+    body = (page.inner_text("body") or "").lower()
 
-        signals = []
+    signals = []
 
-        if "på lager" in body:
-            signals.append("INSTOCK")
+    if "på lager" in body:
+        signals.append("INSTOCK")
 
-        if "ikke på lager" in body:
-            signals.append("OUTOFSTOCK")
+    if "ikke på lager" in body:
+        signals.append("OUTOFSTOCK")
 
-        if "ikke på nettlager" in body:
-            signals.append("NO_WEBSTOCK")
+    if "nettlager" in body:
+        signals.append("WEBSTOCK")
 
-        if "nettlager" in body:
-            signals.append("WEBSTOCK")
+    if "utsolgt" in body:
+        signals.append("SOLDOUT")
 
-        if "utsolgt" in body:
-            signals.append("SOLDOUT")
-
-        return "|".join(signals)
-
-    except:
-        return "UNKNOWN"
+    return "|".join(signals) if signals else "UNKNOWN"
 
 
 # ---------------- HASH ----------------
@@ -155,6 +104,29 @@ def make_hash(title, button_state, stock_signal):
 
 def base_url_from(url):
     return url.split("/")[2]
+
+
+# ---------------- EMAIL (SINGLE SOURCE OF TRUTH) ----------------
+def send_email(shop, items):
+    if not items:
+        print(f"{shop}: ingen gyldige produkter → ingen mail")
+        return
+
+    subject_count = len(items)
+
+    html = "".join(
+        f"<li><a href='{u}'>{t} [{s}]</a></li>"
+        for t, u, s in items
+    )
+
+    resend.Emails.send({
+        "from": "Alert <onboarding@resend.dev>",
+        "to": [EMAIL_TO],
+        "subject": f"🔥 {shop}: {subject_count} produkter",
+        "html": f"<h2>{shop}</h2><ul>{html}</ul>"
+    })
+
+    print(f"{shop}: mail sendt ({subject_count})")
 
 
 # ---------------- SCRAPER ----------------
@@ -172,20 +144,12 @@ def scrape(page, entry_url, cache):
         visited.add(url)
 
         try:
-            page.goto(
-                url,
-                wait_until="domcontentloaded",
-                timeout=60000
-            )
-
-            # raskere enn før
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
             page.wait_for_timeout(200)
 
-            # hent side-status én gang
             state = get_button_state(page)
             stock_signal = get_stock_signal(page)
 
-            # scan kun ekte linker
             links = page.query_selector_all("a[href]")
 
             for el in links:
@@ -200,7 +164,6 @@ def scrape(page, entry_url, cache):
 
                     href = el.get_attribute("href")
 
-                    # unngå entry pages / tom url
                     if not href:
                         continue
 
@@ -213,19 +176,12 @@ def scrape(page, entry_url, cache):
                             + href
                         )
 
-                    h = make_hash(
-                        text,
-                        state,
-                        stock_signal
-                    )
+                    h = make_hash(text, state, stock_signal)
 
                     old = cache.get(full_url)
 
                     is_new = old is None
-                    changed = (
-                        old and
-                        old.get("hash") != h
-                    )
+                    changed = old and old.get("hash") != h
 
                     cache[full_url] = {
                         "title": text,
@@ -235,20 +191,13 @@ def scrape(page, entry_url, cache):
                     }
 
                     if is_new or changed:
-                        items.append((
-                            text[:120],
-                            full_url,
-                            state
-                        ))
+                        items.append((text[:120], full_url, state))
 
                 except:
                     continue
 
-            # ---------------- PAGINATION ----------------
             next_btn = page.query_selector(
-                "a[rel='next'], "
-                "a:has-text('Neste'), "
-                "a:has-text('Next')"
+                "a[rel='next'], a:has-text('Neste'), a:has-text('Next')"
             )
 
             if next_btn:
@@ -271,7 +220,6 @@ def scrape(page, entry_url, cache):
 
         except Exception as e:
             print(f"Feil på {url}: {e}")
-            continue
 
     return items
 
@@ -288,23 +236,18 @@ def main():
             print(f"\nSjekker {shop}")
 
             try:
-                items = scrape(page, url, cache)
+                raw_items = scrape(page, url, cache)
 
-                seen = set()
-                unique = []
+                # CLEAN STEP (ENESTE SOURCE OF TRUTH)
+                clean_items = [
+                    (t, u, s)
+                    for t, u, s in raw_items
+                    if t and u and len(t.strip()) > 2
+                ]
 
-                for t, u, s in items:
-                    if u not in seen:
-                        seen.add(u)
-                        unique.append((t, u, s))
+                print(f"{shop}: raw={len(raw_items)} clean={len(clean_items)}")
 
-                print(f"{shop}: {len(unique)} funnet")
-
-                # FIX: ingen tomme mailer
-                if unique:
-                    send_email(shop, unique)
-                else:
-                    print(f"{shop}: ingen nye/endret produkter")
+                send_email(shop, clean_items)
 
             except Exception as e:
                 print(f"Feil {shop}: {e}")
