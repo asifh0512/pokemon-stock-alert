@@ -6,11 +6,12 @@ resend.api_key = os.environ["RESEND_API_KEY"]
 
 EMAIL_TO = "asifh0512@gmail.com"
 
+# ---------------- ENTRY POINTS (OPTIMALISERT) ----------------
 SITES = {
-    "Ringo": "https://www.ringo.no",
-    "Norli": "https://www.norli.no/leker/kreative-leker/samlekort/pokemonkort",
-    "Nille": "https://www.nille.no",
-    "Extra Leker": "https://www.extra-leker.no"
+    "Ringo": "https://www.ringo.no/produkt-kategori/hobby/samlekort-og-spillkort/",
+    "Norli": "https://www.norli.no/leker/kreative-leker/samlekort/pokemonkort/",
+    "Nille": "https://www.nille.no/produkter/barnerom-og-leker/spill/",
+    "Extra Leker": "https://www.extra-leker.no/merker-leketoy/pokemon_tcg"
 }
 
 
@@ -46,7 +47,7 @@ def is_match(text):
     return any(k in t for k in keywords)
 
 
-# ---------------- URL COLLECTOR ----------------
+# ---------------- URL COLLECTOR (SAFE LIMITED) ----------------
 def extract_urls(page, base_url):
     urls = set()
 
@@ -73,6 +74,7 @@ def check_product(page):
     title = page.title() or ""
     html = page.content().lower()
 
+    # hard negatives
     if "utsolgt" in html:
         return None
     if "ikke på lager" in html:
@@ -80,6 +82,7 @@ def check_product(page):
     if "ikke på nettlager" in html:
         return None
 
+    # match on title only (stabilt nå)
     if is_match(title):
         return title
 
@@ -100,10 +103,12 @@ def main():
                 page.wait_for_timeout(3000)
 
                 urls = extract_urls(page, url)
+
                 print(f"{shop}: fant {len(urls)} URLs")
 
                 items = []
 
+                # begrensning for stabilitet
                 for u in urls[:25]:
                     try:
                         page.goto(u, timeout=60000)
@@ -127,6 +132,7 @@ def main():
                         unique.append((t, u))
 
                 print(f"{shop}: {len(unique)} funnet")
+
                 send_email(shop, unique)
 
             except Exception as e:
