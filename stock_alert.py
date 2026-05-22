@@ -34,20 +34,39 @@ def save_cache(cache):
 
 # ---------------- EMAIL ----------------
 def send_email(shop, items):
-    if not items:
+    # fjern ugyldige/tomme entries
+    clean_items = []
+
+    for t, u, s in items:
+        if not t or not u:
+            continue
+
+        # ikke send entrypoint
+        if u.rstrip("/") in [
+            v.rstrip("/") for v in SITES.values()
+        ]:
+            continue
+
+        clean_items.append((t, u, s))
+
+    # STOPP tom mail
+    if not clean_items:
+        print(f"{shop}: ingen gyldige produkter → ingen mail")
         return
 
     html = "".join(
         f"<li><a href='{u}'>{t} [{s}]</a></li>"
-        for t, u, s in items
+        for t, u, s in clean_items
     )
 
     resend.Emails.send({
         "from": "Alert <onboarding@resend.dev>",
         "to": [EMAIL_TO],
-        "subject": f"🔥 {shop}: {len(items)} produkter",
+        "subject": f"🔥 {shop}: {len(clean_items)} produkter",
         "html": f"<h2>{shop}</h2><ul>{html}</ul>"
     })
+
+    print(f"{shop}: mail sendt ({len(clean_items)} produkter)")
 
 
 # ---------------- MATCHING ----------------
