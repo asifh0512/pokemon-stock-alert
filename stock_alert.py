@@ -41,7 +41,7 @@ def is_match(text):
         "prismatic",
         "destined rivals",
         "ascended",
-        "pikachu",
+        "pokemon",
         "chaos rising"
     ])
 
