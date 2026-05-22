@@ -7,8 +7,8 @@ from playwright.sync_api import sync_playwright
 resend.api_key = os.environ["RESEND_API_KEY"]
 
 EMAIL_TO = "asifh0512@gmail.com"
-
 CACHE_FILE = "product_cache.json"
+
 
 # ---------------- SITES ----------------
 SITES = {
@@ -32,24 +32,23 @@ def save_cache(cache):
         json.dump(cache, f)
 
 
-# ---------------- EMAIL ----------------
-def send_email(shop, items):
-    if not items:
-        return
+# ---------------- ENTRY PAGE FILTER (IMPORTANT) ----------------
+def is_entry_or_list_page(url):
+    if not url:
+        return True
 
-    html = "".join(
-        f"<li><a href='{u}'>{t} [{s}]</a></li>" for t, u, s in items
-    )
+    url = url.lower()
 
-    resend.Emails.send({
-        "from": "Alert <onboarding@resend.dev>",
-        "to": [EMAIL_TO],
-        "subject": f"🔥 {shop}: {len(items)} produkter",
-        "html": f"<h2>{shop}</h2><ul>{html}</ul>"
-    })
+    return any(x in url for x in [
+        "produkt-kategori",
+        "kategori",
+        "page=",
+        "/page/",
+        "samlekort"  # entry listing pages (safe block)
+    ])
 
 
-# ---------------- MATCHING ----------------
+# ---------------- KEYWORDS ----------------
 def is_match(text):
     t = (text or "").lower()
     keywords = [
@@ -57,7 +56,6 @@ def is_match(text):
         "prismatic",
         "destined rivals",
         "ascended",
-        "charizard",
         "chaos rising"
     ]
     return any(k in t for k in keywords)
@@ -84,11 +82,28 @@ def get_button_state(page):
 
 
 # ---------------- HASH ----------------
-def make_hash(title, button_state):
-    return hashlib.md5(f"{title}-{button_state}".encode()).hexdigest()
+def make_hash(title, state):
+    return hashlib.md5(f"{title}-{state}".encode()).hexdigest()
 
 
-# ---------------- URL COLLECTION ----------------
+# ---------------- EMAIL ----------------
+def send_email(shop, items):
+    if not items:
+        return  # HARD STOP: ingen mail uten treff
+
+    html = "".join(
+        f"<li><a href='{u}'>{t} [{s}]</a></li>" for t, u, s in items
+    )
+
+    resend.Emails.send({
+        "from": "Alert <onboarding@resend.dev>",
+        "to": [EMAIL_TO],
+        "subject": f"🔥 {shop}: {len(items)} produkter",
+        "html": f"<h2>{shop}</h2><ul>{html}</ul>"
+    })
+
+
+# ---------------- URL COLLECTOR ----------------
 def extract_urls(page, base_url):
     urls = set()
 
@@ -103,13 +118,14 @@ def extract_urls(page, base_url):
 
             if base_url.split("/")[2] in href:
                 urls.add(href)
+
         except:
             continue
 
     return list(urls)
 
 
-# ---------------- UNIFIED SCRAPER (ALL SHOPS SAME LOGIC) ----------------
+# ---------------- SCRAPER ----------------
 def scrape(page, entry_url, cache):
     items = []
     visited = set()
@@ -122,61 +138,45 @@ def scrape(page, entry_url, cache):
             continue
         visited.add(url)
 
+        # ❌ SKIP ENTRY / LIST PAGES
+        if is_entry_or_list_page(url):
+            try:
+                page.goto(url, timeout=60000)
+                page.wait_for_timeout(1500)
+
+                # only use for discovery, NOT cache
+                urls = extract_urls(page, entry_url)
+                queue.extend(urls[:10])
+
+            except:
+                continue
+
+            continue
+
         try:
             page.goto(url, timeout=60000)
             page.wait_for_timeout(2000)
 
-            # scan all elements
-            for el in page.query_selector_all("a, div, article, li"):
-                try:
-                    text = (el.inner_text() or "").strip()
-                    href = el.get_attribute("href")
+            title = page.title()
+            state = get_button_state(page)
 
-                    if not text:
-                        continue
+            if not is_match(title):
+                continue
 
-                    if not is_match(text):
-                        continue
+            h = make_hash(title, state)
 
-                    full_url = href or url
+            old = cache.get(url)
+            is_new = old is None
+            changed = old and old.get("hash") != h
 
-                    if href and href.startswith("/"):
-                        full_url = "https://" + base_url_from(url) + href
+            cache[url] = {
+                "title": title,
+                "state": state,
+                "hash": h
+            }
 
-                    state = get_button_state(page)
-                    h = make_hash(text, state)
-
-                    old = cache.get(full_url)
-                    is_new = old is None
-                    changed = old and old.get("hash") != h
-
-                    cache[full_url] = {
-                        "title": text,
-                        "button": state,
-                        "hash": h
-                    }
-
-                    if is_new or changed or state == "ACTIVE":
-                        items.append((text[:120], full_url, state))
-
-                except:
-                    continue
-
-            # pagination
-            next_btn = page.query_selector("a[rel='next'], a:has-text('Neste'), a:has-text('Next')")
-
-            if next_btn:
-                try:
-                    next_url = next_btn.get_attribute("href")
-
-                    if next_url:
-                        if next_url.startswith("/"):
-                            next_url = "https://" + base_url_from(url) + next_url
-
-                        if next_url not in visited:
-                            queue.append(next_url)
-                except:
-                    pass
+            if is_new or changed or state == "ACTIVE":
+                items.append((title, url, state))
 
         except:
             continue
@@ -184,13 +184,10 @@ def scrape(page, entry_url, cache):
     return items
 
 
-def base_url_from(url):
-    return url.split("/")[2]
-
-
 # ---------------- MAIN ----------------
 def main():
     cache = load_cache()
+    all_results = {}
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -202,6 +199,7 @@ def main():
             try:
                 items = scrape(page, url, cache)
 
+                # dedupe
                 seen = set()
                 unique = []
 
@@ -212,7 +210,9 @@ def main():
 
                 print(f"{shop}: {len(unique)} funnet")
 
-                send_email(shop, unique)
+                # STORE RESULT BUT DO NOT AUTO SEND
+                if unique:
+                    all_results[shop] = unique
 
             except Exception as e:
                 print(f"Feil {shop}: {e}")
@@ -220,6 +220,10 @@ def main():
         browser.close()
 
     save_cache(cache)
+
+    # ---------------- SEND EMAIL ONLY IF ANY RESULTS ----------------
+    for shop, items in all_results.items():
+        send_email(shop, items)
 
 
 if __name__ == "__main__":
