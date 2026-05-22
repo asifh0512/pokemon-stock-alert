@@ -1,3 +1,2 @@
+playwright
 resend
-requests
-beautifulsoup4
