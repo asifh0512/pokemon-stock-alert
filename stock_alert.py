@@ -10,7 +10,6 @@ EMAIL_TO = "asifh0512@gmail.com"
 
 CACHE_FILE = "product_cache.json"
 
-
 # ---------------- SITES ----------------
 SITES = {
     "Ringo": "https://www.ringo.no/produkt-kategori/hobby/samlekort-og-spillkort/",
@@ -50,18 +49,17 @@ def send_email(shop, items):
     })
 
 
-# ---------------- KEYWORDS ----------------
+# ---------------- MATCHING ----------------
 def is_match(text):
     t = (text or "").lower()
-
     keywords = [
         "mega evo",
         "prismatic",
         "destined rivals",
         "ascended",
+        "charizard",
         "chaos rising"
     ]
-
     return any(k in t for k in keywords)
 
 
@@ -79,7 +77,6 @@ def get_button_state(page):
                 if disabled or aria_disabled == "true":
                     return "DISABLED"
                 return "ACTIVE"
-
         except:
             continue
 
@@ -88,11 +85,10 @@ def get_button_state(page):
 
 # ---------------- HASH ----------------
 def make_hash(title, button_state):
-    raw = f"{title}-{button_state}"
-    return hashlib.md5(raw.encode()).hexdigest()
+    return hashlib.md5(f"{title}-{button_state}".encode()).hexdigest()
 
 
-# ---------------- URL COLLECTOR ----------------
+# ---------------- URL COLLECTION ----------------
 def extract_urls(page, base_url):
     urls = set()
 
@@ -107,42 +103,45 @@ def extract_urls(page, base_url):
 
             if base_url.split("/")[2] in href:
                 urls.add(href)
-
         except:
             continue
 
     return list(urls)
 
 
-# ---------------- NORLI SCRAPER ----------------
-def scrape_norli(page, url, cache):
+# ---------------- UNIFIED SCRAPER (ALL SHOPS SAME LOGIC) ----------------
+def scrape(page, entry_url, cache):
     items = []
     visited = set()
-    queue = [url]
+    queue = [entry_url]
 
     while queue:
-        current = queue.pop(0)
+        url = queue.pop(0)
 
-        if current in visited:
+        if url in visited:
             continue
-        visited.add(current)
+        visited.add(url)
 
-        page.goto(current, timeout=60000)
-        page.wait_for_timeout(2000)
+        try:
+            page.goto(url, timeout=60000)
+            page.wait_for_timeout(2000)
 
-        for el in page.query_selector_all("a, div, article, li"):
-            try:
-                text = (el.inner_text() or "").strip()
-                href = el.get_attribute("href")
+            # scan all elements
+            for el in page.query_selector_all("a, div, article, li"):
+                try:
+                    text = (el.inner_text() or "").strip()
+                    href = el.get_attribute("href")
 
-                if not text:
-                    continue
+                    if not text:
+                        continue
 
-                if is_match(text):
-                    full_url = href or current
+                    if not is_match(text):
+                        continue
+
+                    full_url = href or url
 
                     if href and href.startswith("/"):
-                        full_url = "https://www.norli.no" + href
+                        full_url = "https://" + base_url_from(url) + href
 
                     state = get_button_state(page)
                     h = make_hash(text, state)
@@ -160,65 +159,33 @@ def scrape_norli(page, url, cache):
                     if is_new or changed or state == "ACTIVE":
                         items.append((text[:120], full_url, state))
 
-            except:
-                continue
+                except:
+                    continue
 
-        next_btn = page.query_selector("a[rel='next'], a:has-text('Neste'), a:has-text('Next')")
+            # pagination
+            next_btn = page.query_selector("a[rel='next'], a:has-text('Neste'), a:has-text('Next')")
 
-        if next_btn:
-            try:
-                next_url = next_btn.get_attribute("href")
+            if next_btn:
+                try:
+                    next_url = next_btn.get_attribute("href")
 
-                if next_url and next_url not in visited:
-                    if next_url.startswith("/"):
-                        next_url = "https://www.norli.no" + next_url
-                    queue.append(next_url)
+                    if next_url:
+                        if next_url.startswith("/"):
+                            next_url = "https://" + base_url_from(url) + next_url
 
-            except:
-                pass
-
-    return items
-
-
-# ---------------- GENERIC SCRAPER ----------------
-def scrape_generic(page, entry_url, cache):
-    items = []
-
-    page.goto(entry_url, timeout=60000)
-    page.wait_for_timeout(3000)
-
-    urls = extract_urls(page, entry_url)
-
-    for u in urls[:25]:
-        try:
-            page.goto(u, timeout=60000)
-            page.wait_for_timeout(1500)
-
-            title = page.title()
-            state = get_button_state(page)
-
-            if not is_match(title):
-                continue
-
-            h = make_hash(title, state)
-
-            old = cache.get(u)
-            is_new = old is None
-            changed = old and old.get("hash") != h
-
-            cache[u] = {
-                "title": title,
-                "button": state,
-                "hash": h
-            }
-
-            if is_new or changed or state == "ACTIVE":
-                items.append((title, u, state))
+                        if next_url not in visited:
+                            queue.append(next_url)
+                except:
+                    pass
 
         except:
             continue
 
     return items
+
+
+def base_url_from(url):
+    return url.split("/")[2]
 
 
 # ---------------- MAIN ----------------
@@ -233,10 +200,7 @@ def main():
             print(f"\nSjekker {shop}")
 
             try:
-                if shop == "Norli":
-                    items = scrape_norli(page, url, cache)
-                else:
-                    items = scrape_generic(page, url, cache)
+                items = scrape(page, url, cache)
 
                 seen = set()
                 unique = []
