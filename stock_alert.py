@@ -9,9 +9,8 @@ EMAIL_TO = "asifh0512@gmail.com"
 
 CACHE_FILE = "product_cache.json"
 
-MAX_PAGES = 25  # ⚡ speed limit
 
-
+# ---------------- SITES ----------------
 SITES = {
     "Ringo": "https://www.ringo.no/produkt-kategori/hobby/samlekort-og-spillkort/",
     "Norli": "https://www.norli.no/leker/kreative-leker/samlekort/pokemonkort/",
@@ -41,30 +40,48 @@ def is_match(text):
         "prismatic",
         "destined rivals",
         "ascended",
-        "pokemon",
         "chaos rising"
     ])
 
 
-# ---------------- BUTTON ----------------
-def get_button_state(page):
-    for b in page.query_selector_all("button, a"):
-        try:
-            text = (b.inner_text() or "").lower()
+# ---------------- ENTRY VS PRODUCT DETECTION ----------------
+def is_entry_page(page):
+    try:
+        links = page.query_selector_all("a[href]")
+        text = page.inner_text("body") or ""
 
-            if any(x in text for x in ["handlekurv", "kjøp", "buy", "add to cart"]):
-                if b.get_attribute("disabled") or b.get_attribute("aria-disabled") == "true":
-                    return "DISABLED"
-                return "ACTIVE"
-        except:
+        link_count = len(links)
+
+        # Heuristics:
+        has_many_links = link_count > 25
+        has_no_clear_product_title = len(text.split("\n")) > 200
+
+        return has_many_links and has_no_clear_product_title
+
+    except:
+        return True
+
+
+# ---------------- PRODUCT LINKS ----------------
+def extract_links(page, base_url):
+    urls = []
+
+    for a in page.query_selector_all("a[href]"):
+        href = a.get_attribute("href")
+        if not href:
             continue
 
-    return "MISSING"
+        if href.startswith("/"):
+            href = base_url + href
+
+        urls.append(href)
+
+    return urls[:20]
 
 
 # ---------------- HASH ----------------
-def make_hash(title, state):
-    return hashlib.md5(f"{title}-{state}".encode()).hexdigest()
+def make_hash(title):
+    return hashlib.md5(title.encode()).hexdigest()
 
 
 # ---------------- EMAIL ----------------
@@ -73,7 +90,7 @@ def send_email(shop, items):
         return
 
     html = "".join(
-        f"<li><a href='{u}'>{t} [{s}]</a></li>" for t, u, s in items
+        f"<li><a href='{u}'>{t}</a></li>" for t, u in items
     )
 
     resend.Emails.send({
@@ -90,9 +107,7 @@ def scrape(page, entry_url, cache):
     visited = set()
     items = []
 
-    pages = 0
-
-    while queue and pages < MAX_PAGES:
+    while queue:
         url = queue.pop(0)
 
         if url in visited:
@@ -101,51 +116,37 @@ def scrape(page, entry_url, cache):
 
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            pages += 1
 
-            # ---------------- ENTRY / LIST PAGE ----------------
-            if "kategori" in url or "page=" in url:
-                links = page.query_selector_all("a[href]")
+            # ---------------- ENTRY PAGE ----------------
+            if is_entry_page(page):
+                links = extract_links(page, entry_url)
 
-                for a in links[:20]:  # ⚡ limit expansion
-                    href = a.get_attribute("href")
-                    if not href:
-                        continue
-
-                    if href.startswith("/"):
-                        href = entry_url + href
-
-                    if href not in visited:
-                        queue.append(href)
+                for link in links:
+                    if link not in visited:
+                        queue.append(link)
 
                 continue
 
             # ---------------- PRODUCT PAGE ----------------
             title = page.title()
+
             if not is_match(title):
                 continue
 
-            state = get_button_state(page)
-            url_hash = make_hash(title, state)
+            h = make_hash(title)
 
             old = cache.get(url)
 
             is_new = old is None
-            changed = old and old.get("hash") != url_hash
-            state_changed = old and old.get("button") != state
-
-            already_active = old and old.get("button") == "ACTIVE" and state == "ACTIVE"
-
-            should_alert = (is_new or changed or state_changed) and not already_active
+            changed = old and old.get("hash") != h
 
             cache[url] = {
                 "title": title,
-                "button": state,
-                "hash": url_hash
+                "hash": h
             }
 
-            if should_alert:
-                items.append((title, url, state))
+            if is_new or changed:
+                items.append((title, url))
 
         except:
             continue
@@ -170,10 +171,10 @@ def main():
             seen = set()
             unique = []
 
-            for t, u, s in items:
+            for t, u in items:
                 if u not in seen:
                     seen.add(u)
-                    unique.append((t, u, s))
+                    unique.append((t, u))
 
             if unique:
                 results[shop] = unique
