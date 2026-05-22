@@ -1,75 +1,135 @@
 import os
-import requests
-from bs4 import BeautifulSoup
 import resend
+from playwright.sync_api import sync_playwright
 
+# API KEY (fra GitHub Secrets)
 resend.api_key = os.environ["RESEND_API_KEY"]
 
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+EMAIL_TO = "asifh0512@gmail.com"
 
-SEARCH_URLS = {
+SITES = {
     "Ringo": "https://www.ringo.no/pokemon/",
     "Norli": "https://www.norli.no/search?query=pokemon",
     "Nille": "https://www.nille.no/search?q=pokemon",
     "Extra Leker": "https://www.extra-leker.no/search?q=pokemon"
 }
 
-def get_product_links(url):
-    r = requests.get(url, headers=HEADERS, timeout=10)
-    soup = BeautifulSoup(r.text, "html.parser")
 
-    links = set()
+# ---------------- EMAIL ----------------
+def send_email(shop, title, url):
+    resend.Emails.send({
+        "from": "Pokemon Alert <onboarding@resend.dev>",
+        "to": [EMAIL_TO],
+        "subject": f"🔥 Pokémon funnet hos {shop}",
+        "html": f"""
+        <h2>{shop}</h2>
+        <p><b>{title}</b></p>
+        <a href="{url}">Åpne produkt</a>
+        """
+    })
 
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
 
-        if "produkt" in href or "/p/" in href or "/products" in href:
-            if href.startswith("/"):
-                href = "https://www.norli.no" + href
-            links.add(href)
+# ---------------- FILTER ----------------
+def is_pokemon(text: str):
+    t = (text or "").lower()
+    keywords = ["pokemon", "pokémon", "booster", "tcg", "elite trainer", "charizard", "pikachu"]
+    return any(k in t for k in keywords)
 
-    return list(links)
 
-def is_in_stock(html):
-    text = html.lower()
+# ---------------- LINK EXTRACTION ----------------
+def extract_links(page):
+    results = []
 
-    # alt som tyder på tilgjengelighet
-    if "utsolgt" in text:
+    for a in page.query_selector_all("a"):
+        try:
+            text = a.inner_text() or ""
+            href = a.get_attribute("href")
+
+            if not href:
+                continue
+
+            if is_pokemon(text):
+                results.append((text.strip(), href))
+
+        except:
+            continue
+
+    return results
+
+
+# ---------------- STOCK CHECK ----------------
+def check_stock(page):
+    html = page.content().lower()
+
+    if "utsolgt" in html:
         return False
-    if "ikke tilgjengelig" in text:
+    if "ikke tilgjengelig" in html:
         return False
-    if "på lager" in text:
+    if "på lager" in html:
         return True
-    if "legg i handlekurv" in text:
+    if "legg i handlekurv" in html:
         return True
-    if "add to cart" in text:
+    if "add to cart" in html:
         return True
 
     return None
 
-def check_product(url):
-    r = requests.get(url, headers=HEADERS, timeout=10)
-    return is_in_stock(r.text)
 
-def send_email(shop, url):
-    resend.Emails.send({
-        "from": "Pokemon Alert <onboarding@resend.dev>",
-        "to": ["asifh0512@gmail.com"],
-        "subject": f"🔥 Pokémon mulig på lager hos {shop}",
-        "html": f"<p>Mulig tilgjengelig Pokémon-produkt</p><a href='{url}'>Åpne produkt</a>"
-    })
+# ---------------- URL FIX ----------------
+def fix_url(base, href):
+    if href.startswith("http"):
+        return href
 
+    if "ringo.no" in base:
+        return "https://www.ringo.no" + href
+
+    if "norli.no" in base:
+        return "https://www.norli.no" + href
+
+    if "nille.no" in base:
+        return "https://www.nille.no" + href
+
+    if "extra-leker.no" in base:
+        return "https://www.extra-leker.no" + href
+
+    return href
+
+
+# ---------------- MAIN ----------------
 def main():
-    for shop, url in SEARCH_URLS.items():
-        print(f"Sjekker {shop}")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
 
-        products = get_product_links(url)
+        for shop, url in SITES.items():
+            print(f"\nSjekker {shop}")
 
-        for p in products[:8]:  # holder det lett og stabilt
-            status = check_product(p)
+            try:
+                page.goto(url, timeout=60000)
+                page.wait_for_timeout(3000)
 
-            if status is True:
-                send_email(shop, p)
-                print("ALERT:", p)
+                links = extract_links(page)
+                print(f"{shop}: fant {len(links)} kandidater")
 
-main()
+                for title, href in links[:10]:
+                    full_url = fix_url(url, href)
+
+                    try:
+                        page.goto(full_url, timeout=60000)
+                        page.wait_for_timeout(2000)
+
+                        if check_stock(page):
+                            print("ALERT:", title)
+                            send_email(shop, title or "Pokémon produkt", full_url)
+
+                    except:
+                        continue
+
+            except Exception as e:
+                print(f"Feil på {shop}: {e}")
+
+        browser.close()
+
+
+if __name__ == "__main__":
+    main()
