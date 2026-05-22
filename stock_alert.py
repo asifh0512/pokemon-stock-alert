@@ -7,37 +7,31 @@ resend.api_key = os.environ["RESEND_API_KEY"]
 EMAIL_TO = "asifh0512@gmail.com"
 
 SITES = {
-    "Ringo": "https://www.ringo.no/pokemon/",
-    "Norli": "https://www.norli.no/search?query=pokemon",
-    "Nille": "https://www.nille.no/search?q=pokemon",
-    "Extra Leker": "https://www.extra-leker.no/search?q=pokemon"
+    "Ringo": "https://www.ringo.no",
+    "Norli": "https://www.norli.no/leker/kreative-leker/samlekort/pokemonkort",
+    "Nille": "https://www.nille.no",
+    "Extra Leker": "https://www.extra-leker.no"
 }
 
 
 # ---------------- EMAIL ----------------
 def send_email(shop, items):
-    count = len(items)
-
-    if count == 0:
+    if not items:
         return
 
-    html_items = ""
-    for title, url in items:
-        html_items += f"<li><a href='{url}'>{title}</a></li>"
+    html = "".join(
+        f"<li><a href='{u}'>{t}</a></li>" for t, u in items
+    )
 
     resend.Emails.send({
         "from": "Alert <onboarding@resend.dev>",
         "to": [EMAIL_TO],
-        "subject": f"🔥 {shop}: {count} produkter funnet",
-        "html": f"""
-        <h2>{shop}</h2>
-        <p><b>{count} produkter funnet</b></p>
-        <ul>{html_items}</ul>
-        """
+        "subject": f"🔥 {shop}: {len(items)} produkter",
+        "html": f"<h2>{shop}</h2><ul>{html}</ul>"
     })
 
 
-# ---------------- FILTER (SERIER) ----------------
+# ---------------- KEYWORDS ----------------
 def is_match(text):
     t = (text or "").lower()
 
@@ -52,33 +46,44 @@ def is_match(text):
     return any(k in t for k in keywords)
 
 
-# ---------------- SCRAPER ----------------
-def extract_products(page, base_url):
-    results = []
+# ---------------- URL COLLECTOR ----------------
+def extract_urls(page, base_url):
+    urls = set()
 
-    elements = page.query_selector_all("a, div, article, li")
-
-    for el in elements:
+    for a in page.query_selector_all("a[href]"):
         try:
-            text = (el.inner_text() or "").strip()
-            href = el.get_attribute("href")
-
-            if not text:
+            href = a.get_attribute("href")
+            if not href:
                 continue
 
-            text_l = text.lower()
+            if href.startswith("/"):
+                href = base_url + href
 
-            if is_match(text_l):
-                if href:
-                    if href.startswith("/"):
-                        href = base_url + href
-
-                results.append((text[:120], href or page.url))
+            if base_url.split("/")[2] in href:
+                urls.add(href)
 
         except:
             continue
 
-    return results
+    return list(urls)
+
+
+# ---------------- PRODUCT CHECK ----------------
+def check_product(page):
+    title = page.title() or ""
+    html = page.content().lower()
+
+    if "utsolgt" in html:
+        return None
+    if "ikke på lager" in html:
+        return None
+    if "ikke på nettlager" in html:
+        return None
+
+    if is_match(title):
+        return title
+
+    return None
 
 
 # ---------------- MAIN ----------------
@@ -91,31 +96,37 @@ def main():
             print(f"\nSjekker {shop}")
 
             try:
-                # ---------------- LOAD + LAZY FIX ----------------
                 page.goto(url, timeout=60000)
+                page.wait_for_timeout(3000)
 
-                page.wait_for_load_state("networkidle")
-                page.wait_for_timeout(2000)
+                urls = extract_urls(page, url)
+                print(f"{shop}: fant {len(urls)} URLs")
 
-                # trigger lazy loading (VIKTIG for Nille / Extra Leker)
-                page.mouse.wheel(0, 3000)
-                page.wait_for_timeout(2000)
-                page.mouse.wheel(0, 3000)
-                page.wait_for_timeout(2000)
+                items = []
 
-                # ---------------- SCRAPE ----------------
-                products = extract_products(page, url)
+                for u in urls[:25]:
+                    try:
+                        page.goto(u, timeout=60000)
+                        page.wait_for_timeout(1500)
 
+                        result = check_product(page)
+
+                        if result:
+                            items.append((result, u))
+
+                    except:
+                        continue
+
+                # dedupe
                 seen = set()
                 unique = []
 
-                for title, link in products:
-                    if link not in seen:
-                        seen.add(link)
-                        unique.append((title, link))
+                for t, u in items:
+                    if u not in seen:
+                        seen.add(u)
+                        unique.append((t, u))
 
-                print(f"{shop}: fant {len(unique)} produkter")
-
+                print(f"{shop}: {len(unique)} funnet")
                 send_email(shop, unique)
 
             except Exception as e:
