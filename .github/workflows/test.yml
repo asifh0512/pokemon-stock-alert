@@ -8,16 +8,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    - uses: actions/setup-python@v5
       with:
         python-version: '3.11'
+
+    - name: Install dependencies
+      run: pip install resend
 
     - name: Run script
       env:
         RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       run: python stock_alert.py
-
