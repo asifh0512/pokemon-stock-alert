@@ -6,7 +6,7 @@ resend.api_key = os.environ["RESEND_API_KEY"]
 
 EMAIL_TO = "asifh0512@gmail.com"
 
-# ---------------- ENTRY POINTS (OPTIMALISERT) ----------------
+# ---------------- ENTRY POINTS ----------------
 SITES = {
     "Ringo": "https://www.ringo.no/produkt-kategori/hobby/samlekort-og-spillkort/",
     "Norli": "https://www.norli.no/leker/kreative-leker/samlekort/pokemonkort/",
@@ -47,7 +47,7 @@ def is_match(text):
     return any(k in t for k in keywords)
 
 
-# ---------------- URL COLLECTOR (SAFE LIMITED) ----------------
+# ---------------- URL COLLECTION (NON-NORLI) ----------------
 def extract_urls(page, base_url):
     urls = set()
 
@@ -69,24 +69,85 @@ def extract_urls(page, base_url):
     return list(urls)
 
 
-# ---------------- PRODUCT CHECK ----------------
-def check_product(page):
-    title = page.title() or ""
-    html = page.content().lower()
+# ---------------- NORLI (TITLE-BASED) ----------------
+def scrape_norli(page, url):
+    items = []
 
-    # hard negatives
-    if "utsolgt" in html:
-        return None
-    if "ikke på lager" in html:
-        return None
-    if "ikke på nettlager" in html:
-        return None
+    page.goto(url, timeout=60000)
+    page.wait_for_timeout(3000)
 
-    # match on title only (stabilt nå)
-    if is_match(title):
-        return title
+    pages = set()
+    queue = [url]
 
-    return None
+    while queue:
+        current = queue.pop(0)
+
+        if current in pages:
+            continue
+        pages.add(current)
+
+        page.goto(current, timeout=60000)
+        page.wait_for_timeout(2000)
+
+        # hent alle product-like elements
+        for el in page.query_selector_all("a, div, article, li"):
+            try:
+                text = (el.inner_text() or "").strip()
+                href = el.get_attribute("href")
+
+                if not text:
+                    continue
+
+                if is_match(text):
+                    full_url = href or current
+                    if href and href.startswith("/"):
+                        full_url = "https://www.norli.no" + href
+
+                    items.append((text[:120], full_url))
+
+            except:
+                continue
+
+        # finn neste sider (pagination)
+        next_btn = page.query_selector("a[rel='next'], a:has-text('Neste'), a:has-text('Next')")
+
+        if next_btn:
+            try:
+                next_url = next_btn.get_attribute("href")
+                if next_url and next_url.startswith("/"):
+                    next_url = "https://www.norli.no" + next_url
+
+                if next_url:
+                    queue.append(next_url)
+            except:
+                pass
+
+    return items
+
+
+# ---------------- OTHER SHOPS (URL -> PRODUCT PAGES) ----------------
+def scrape_by_urls(page, entry_url):
+    items = []
+
+    page.goto(entry_url, timeout=60000)
+    page.wait_for_timeout(3000)
+
+    urls = extract_urls(page, entry_url)
+
+    for u in urls[:25]:
+        try:
+            page.goto(u, timeout=60000)
+            page.wait_for_timeout(1500)
+
+            title = page.title()
+
+            if is_match(title):
+                items.append((title, u))
+
+        except:
+            continue
+
+    return items
 
 
 # ---------------- MAIN ----------------
@@ -99,28 +160,11 @@ def main():
             print(f"\nSjekker {shop}")
 
             try:
-                page.goto(url, timeout=60000)
-                page.wait_for_timeout(3000)
-
-                urls = extract_urls(page, url)
-
-                print(f"{shop}: fant {len(urls)} URLs")
-
-                items = []
-
-                # begrensning for stabilitet
-                for u in urls[:25]:
-                    try:
-                        page.goto(u, timeout=60000)
-                        page.wait_for_timeout(1500)
-
-                        result = check_product(page)
-
-                        if result:
-                            items.append((result, u))
-
-                    except:
-                        continue
+                # ---------------- NORLI SPECIAL ----------------
+                if shop == "Norli":
+                    items = scrape_norli(page, url)
+                else:
+                    items = scrape_by_urls(page, url)
 
                 # dedupe
                 seen = set()
