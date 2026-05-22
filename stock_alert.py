@@ -40,43 +40,13 @@ def is_match(text):
         "prismatic",
         "destined rivals",
         "ascended",
-        "pikachu",
-        "pokémon",
-        "bamse",
-        "deck",
         "chaos rising"
     ])
 
 
-# ---------------- STOCK EXTRACTION ----------------
-def extract_stock_text(page):
-    try:
-        body = (page.inner_text("body") or "").lower()
-
-        keywords = [
-            "på lager",
-            "ikke på lager",
-            "utsolgt",
-            "out of stock",
-            "in stock",
-            "på nett",
-            "på nettlager",
-            "nettlager",
-            "tilgjengelig på nett",
-            "ikke tilgjengelig"
-        ]
-
-        found = [k for k in keywords if k in body]
-
-        return "|".join(found)
-    except:
-        return ""
-
-
 # ---------------- HASH ----------------
-def make_hash(title, stock_text):
-    raw = f"{title}|{stock_text}"
-    return hashlib.md5(raw.encode()).hexdigest()
+def make_hash(title):
+    return hashlib.md5(title.encode()).hexdigest()
 
 
 # ---------------- EMAIL ----------------
@@ -85,7 +55,7 @@ def send_email(shop, items):
         return
 
     html = "".join(
-        f"<li><a href='{u}'>{t} [{s}]</a></li>" for t, u, s in items
+        f"<li><a href='{u}'>{t}</a></li>" for t, u in items
     )
 
     resend.Emails.send({
@@ -96,38 +66,11 @@ def send_email(shop, items):
     })
 
 
-# ---------------- ENTRY DETECTION ----------------
-def is_entry_page(page):
-    try:
-        links = page.query_selector_all("a[href]")
-        text = page.inner_text("body") or ""
-
-        return len(links) > 25 and len(text.split()) > 300
-    except:
-        return True
-
-
-def extract_links(page, base_url):
-    urls = []
-
-    for a in page.query_selector_all("a[href]"):
-        href = a.get_attribute("href")
-        if not href:
-            continue
-
-        if href.startswith("/"):
-            href = base_url + href
-
-        urls.append(href)
-
-    return urls[:25]
-
-
 # ---------------- SCRAPER ----------------
 def scrape(page, entry_url, cache):
-    queue = [entry_url]
-    visited = set()
     items = []
+    visited = set()
+    queue = [entry_url]
 
     while queue:
         url = queue.pop(0)
@@ -139,25 +82,27 @@ def scrape(page, entry_url, cache):
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
-            # ---------------- ENTRY PAGE ----------------
-            if is_entry_page(page):
-                links = extract_links(page, entry_url)
+            # ---------------- LINK DISCOVERY ----------------
+            links = page.query_selector_all("a[href]")
 
-                for link in links:
-                    if link not in visited:
-                        queue.append(link)
+            for a in links[:20]:
+                href = a.get_attribute("href")
+                if not href:
+                    continue
 
-                continue
+                if href.startswith("/"):
+                    href = entry_url + href
 
-            # ---------------- PRODUCT PAGE ----------------
+                if href not in visited:
+                    queue.append(href)
+
+            # ---------------- PRODUCT CHECK ----------------
             title = page.title()
 
             if not is_match(title):
                 continue
 
-            stock_text = extract_stock_text(page)
-
-            h = make_hash(title, stock_text)
+            h = make_hash(title)
 
             old = cache.get(url)
 
@@ -166,12 +111,11 @@ def scrape(page, entry_url, cache):
 
             cache[url] = {
                 "title": title,
-                "stock": stock_text,
                 "hash": h
             }
 
             if is_new or changed:
-                items.append((title, url, stock_text))
+                items.append((title, url))
 
         except:
             continue
@@ -196,10 +140,10 @@ def main():
             seen = set()
             unique = []
 
-            for t, u, s in items:
+            for t, u in items:
                 if u not in seen:
                     seen.add(u)
-                    unique.append((t, u, s))
+                    unique.append((t, u))
 
             if unique:
                 results[shop] = unique
