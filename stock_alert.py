@@ -130,7 +130,7 @@ def send_email(shop, items):
     print(f"{shop}: mail sendt ({len(items)})")
 
 
-# ---------------- SCRAPER (FIXED DOM EXTRACTION) ----------------
+# ---------------- SCRAPER (FIXED HREF LOGIC) ----------------
 def scrape(page, entry_url, cache):
     items = []
     visited = set()
@@ -151,7 +151,6 @@ def scrape(page, entry_url, cache):
             state = get_button_state(page)
             stock_signal = get_stock_signal(page)
 
-            # 🔥 FIX: bredere DOM-søk (ikke bare a[href])
             elements = page.query_selector_all(
                 "a[href], div, article, li, span"
             )
@@ -161,13 +160,16 @@ def scrape(page, entry_url, cache):
                     text = " ".join((el.inner_text() or "").split()).strip()
                     href = el.get_attribute("href")
 
-                    if not text or not href:
+                    if not text:
                         continue
 
-                    full_url = href
-
-                    if href.startswith("/"):
-                        full_url = "https://" + base_url_from(url) + href
+                    # ---------------- FIX: no longer require href ----------------
+                    if href:
+                        full_url = href
+                        if href.startswith("/"):
+                            full_url = "https://" + base_url_from(url) + href
+                    else:
+                        full_url = url
 
                     if not is_match(text):
                         continue
@@ -228,7 +230,7 @@ def main():
                 clean_items = [
                     (t, u, s)
                     for t, u, s in raw_items
-                    if t and u and len(t.strip()) > 2
+                    if t and len(t.strip()) > 2
                 ]
 
                 print(f"{shop}: funnet {len(clean_items)} produkter")
