@@ -130,7 +130,7 @@ def send_email(shop, items):
     print(f"{shop}: mail sendt ({len(items)})")
 
 
-# ---------------- SCRAPER (FIXED DOM EXTRACTION) ----------------
+# ---------------- SCRAPER ----------------
 def scrape(page, entry_url, cache):
     items = []
     visited = set()
@@ -151,7 +151,6 @@ def scrape(page, entry_url, cache):
             state = get_button_state(page)
             stock_signal = get_stock_signal(page)
 
-            # 🔥 FIX: bredere DOM-søk (ikke bare a[href])
             elements = page.query_selector_all(
                 "a[href], div, article, li, span"
             )
@@ -187,31 +186,13 @@ def scrape(page, entry_url, cache):
                 except:
                     continue
 
-            next_btn = page.query_selector(
-                "a[rel='next'], a:has-text('Neste'), a:has-text('Next')"
-            )
-
-            if next_btn:
-                try:
-                    next_url = next_btn.get_attribute("href")
-
-                    if next_url:
-                        if next_url.startswith("/"):
-                            next_url = "https://" + base_url_from(url) + next_url
-
-                        if next_url not in visited:
-                            queue.append(next_url)
-
-                except:
-                    pass
-
         except:
             continue
 
     return items
 
 
-# ---------------- MAIN ----------------
+# ---------------- MAIN (ONE SHOT FOR GITHUB) ----------------
 def main():
     cache = load_cache()
 
