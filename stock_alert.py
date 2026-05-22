@@ -130,7 +130,7 @@ def send_email(shop, items):
     print(f"{shop}: mail sendt ({len(items)})")
 
 
-# ---------------- SCRAPER ----------------
+# ---------------- SCRAPER (FIXED DOM EXTRACTION) ----------------
 def scrape(page, entry_url, cache):
     items = []
     visited = set()
@@ -151,11 +151,14 @@ def scrape(page, entry_url, cache):
             state = get_button_state(page)
             stock_signal = get_stock_signal(page)
 
-            elements = page.query_selector_all("a[href]")
+            # 🔥 FIX: bredere DOM-søk (ikke bare a[href])
+            elements = page.query_selector_all(
+                "a[href], div, article, li, span"
+            )
 
             for el in elements:
                 try:
-                    text = (el.inner_text() or "").strip()
+                    text = " ".join((el.inner_text() or "").split()).strip()
                     href = el.get_attribute("href")
 
                     if not text or not href:
@@ -169,7 +172,6 @@ def scrape(page, entry_url, cache):
                     if not is_match(text):
                         continue
 
-                    # ---------------- CACHE (BEHOLDER, MEN BLOKKERER IKKE OUTPUT LENGER) ----------------
                     key = full_url
                     h = make_hash(text, state, stock_signal)
 
@@ -180,7 +182,6 @@ def scrape(page, entry_url, cache):
                         "hash": h
                     }
 
-                    # 🔥 VIKTIG ENDRING: alltid legg til når match
                     items.append((text[:120], full_url, state))
 
                 except:
