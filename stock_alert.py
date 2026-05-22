@@ -40,29 +40,73 @@ def is_match(text):
         "prismatic",
         "destined rivals",
         "ascended",
+        "pikachu",
+        "pokémon",
+        "bamse",
+        "deck",
         "chaos rising"
     ])
 
 
-# ---------------- ENTRY VS PRODUCT DETECTION ----------------
+# ---------------- STOCK EXTRACTION ----------------
+def extract_stock_text(page):
+    try:
+        body = (page.inner_text("body") or "").lower()
+
+        keywords = [
+            "på lager",
+            "ikke på lager",
+            "utsolgt",
+            "out of stock",
+            "in stock",
+            "på nett",
+            "på nettlager",
+            "nettlager",
+            "tilgjengelig på nett",
+            "ikke tilgjengelig"
+        ]
+
+        found = [k for k in keywords if k in body]
+
+        return "|".join(found)
+    except:
+        return ""
+
+
+# ---------------- HASH ----------------
+def make_hash(title, stock_text):
+    raw = f"{title}|{stock_text}"
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
+# ---------------- EMAIL ----------------
+def send_email(shop, items):
+    if not items:
+        return
+
+    html = "".join(
+        f"<li><a href='{u}'>{t} [{s}]</a></li>" for t, u, s in items
+    )
+
+    resend.Emails.send({
+        "from": "Alert <onboarding@resend.dev>",
+        "to": [EMAIL_TO],
+        "subject": f"🔥 {shop}: {len(items)} produkter",
+        "html": f"<h2>{shop}</h2><ul>{html}</ul>"
+    })
+
+
+# ---------------- ENTRY DETECTION ----------------
 def is_entry_page(page):
     try:
         links = page.query_selector_all("a[href]")
         text = page.inner_text("body") or ""
 
-        link_count = len(links)
-
-        # Heuristics:
-        has_many_links = link_count > 25
-        has_no_clear_product_title = len(text.split("\n")) > 200
-
-        return has_many_links and has_no_clear_product_title
-
+        return len(links) > 25 and len(text.split()) > 300
     except:
         return True
 
 
-# ---------------- PRODUCT LINKS ----------------
 def extract_links(page, base_url):
     urls = []
 
@@ -76,29 +120,7 @@ def extract_links(page, base_url):
 
         urls.append(href)
 
-    return urls[:20]
-
-
-# ---------------- HASH ----------------
-def make_hash(title):
-    return hashlib.md5(title.encode()).hexdigest()
-
-
-# ---------------- EMAIL ----------------
-def send_email(shop, items):
-    if not items:
-        return
-
-    html = "".join(
-        f"<li><a href='{u}'>{t}</a></li>" for t, u in items
-    )
-
-    resend.Emails.send({
-        "from": "Alert <onboarding@resend.dev>",
-        "to": [EMAIL_TO],
-        "subject": f"🔥 {shop}: {len(items)} produkter",
-        "html": f"<h2>{shop}</h2><ul>{html}</ul>"
-    })
+    return urls[:25]
 
 
 # ---------------- SCRAPER ----------------
@@ -133,7 +155,9 @@ def scrape(page, entry_url, cache):
             if not is_match(title):
                 continue
 
-            h = make_hash(title)
+            stock_text = extract_stock_text(page)
+
+            h = make_hash(title, stock_text)
 
             old = cache.get(url)
 
@@ -142,11 +166,12 @@ def scrape(page, entry_url, cache):
 
             cache[url] = {
                 "title": title,
+                "stock": stock_text,
                 "hash": h
             }
 
             if is_new or changed:
-                items.append((title, url))
+                items.append((title, url, stock_text))
 
         except:
             continue
@@ -171,10 +196,10 @@ def main():
             seen = set()
             unique = []
 
-            for t, u in items:
+            for t, u, s in items:
                 if u not in seen:
                     seen.add(u)
-                    unique.append((t, u))
+                    unique.append((t, u, s))
 
             if unique:
                 results[shop] = unique
