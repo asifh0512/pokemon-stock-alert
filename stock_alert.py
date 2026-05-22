@@ -14,7 +14,7 @@ SITES = {
 }
 
 
-# ---------------- EMAIL (1 per butikk) ----------------
+# ---------------- EMAIL ----------------
 def send_email(shop, items):
     count = len(items)
 
@@ -26,46 +26,52 @@ def send_email(shop, items):
         html_items += f"<li><a href='{url}'>{title}</a></li>"
 
     resend.Emails.send({
-        "from": "Pokemon Alert <onboarding@resend.dev>",
+        "from": "Alert <onboarding@resend.dev>",
         "to": [EMAIL_TO],
-        "subject": f"🔥 {shop}: {count} Pokémon produkter funnet",
+        "subject": f"🔥 {shop}: {count} produkter funnet",
         "html": f"""
         <h2>{shop}</h2>
         <p><b>{count} produkter funnet</b></p>
-        <ul>
-            {html_items}
-        </ul>
+        <ul>{html_items}</ul>
         """
     })
 
 
-# ---------------- SIMPLE FILTER (MIDlERTIDIG) ----------------
-def is_pokemon(text):
+# ---------------- NEW FILTER (SERIES ONLY) ----------------
+def is_match(text):
     t = (text or "").lower()
-    return "pokemon" in t or "pokémon" in t
+
+    keywords = [
+        "mega evo",
+        "prismatic",
+        "destined rivals",
+        "ascended",
+        "chaos rising"
+    ]
+
+    return any(k in t for k in keywords)
 
 
-# ---------------- STEP 1: FIND PRODUCTS ----------------
+# ---------------- SCRAPER ----------------
 def extract_products(page, base_url):
     results = []
 
-    # mer robust enn bare a-tags
     elements = page.query_selector_all("a, div, article, li")
 
     for el in elements:
         try:
-            text = (el.inner_text() or "").strip().lower()
+            text = (el.inner_text() or "").strip()
             href = el.get_attribute("href")
 
             if not text:
                 continue
 
-            # finn link hvis den finnes
-            if href:
-                if href.startswith("/"):
+            text_l = text.lower()
+
+            if is_match(text_l):
+                if href and href.startswith("/"):
                     href = base_url + href
 
-            if "pokemon" in text or "pokémon" in text:
                 results.append((text[:120], href or page.url))
 
         except:
@@ -89,7 +95,6 @@ def main():
 
                 products = extract_products(page, url)
 
-                # fjern duplikater
                 seen = set()
                 unique = []
 
