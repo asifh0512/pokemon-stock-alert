@@ -156,14 +156,14 @@ def scrape(page, entry_url, cache):
                 timeout=60000
             )
 
-            # raskere enn 500ms
+            # raskere enn før
             page.wait_for_timeout(200)
 
-            # hent side-status ÉN gang
+            # hent side-status én gang
             state = get_button_state(page)
             stock_signal = get_stock_signal(page)
 
-            # scan kun ekte linker (stor speedup)
+            # scan kun ekte linker
             links = page.query_selector_all("a[href]")
 
             for el in links:
@@ -178,6 +178,7 @@ def scrape(page, entry_url, cache):
 
                     href = el.get_attribute("href")
 
+                    # unngå entry pages / tom url
                     if not href:
                         continue
 
@@ -259,7 +260,6 @@ def main():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-
         page = browser.new_page()
 
         for shop, url in SITES.items():
@@ -278,7 +278,11 @@ def main():
 
                 print(f"{shop}: {len(unique)} funnet")
 
-                send_email(shop, unique)
+                # FIX: ingen tomme mailer
+                if unique:
+                    send_email(shop, unique)
+                else:
+                    print(f"{shop}: ingen nye/endret produkter")
 
             except Exception as e:
                 print(f"Feil {shop}: {e}")
