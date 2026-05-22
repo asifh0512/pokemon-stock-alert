@@ -41,12 +41,7 @@ def is_match(text):
         "prismatic",
         "destined rivals",
         "ascended",
-        "chaos rising",
-        "surging",
-        "151",
-        "uno",
-        "world",
-        "yatzy"
+        "chaos rising"
     ]
     return any(k in t for k in keywords)
 
@@ -114,39 +109,26 @@ def base_url_from(url):
     return url.split("/")[2]
 
 
-# ---------------- FILTER (IMPORTANT FIX) ----------------
-def is_valid_product_url(url):
-    if not url:
-        return False
-
-    u = url.lower()
-
-    # fjern ikke-produkt sider
-    bad_parts = [
-        "search",
-        "collections",
-        "category",
-        "#",
-        "account",
-        "login"
-    ]
-
-    return not any(x in u for x in bad_parts)
-
-
 # ---------------- EMAIL ----------------
 def send_email(shop, items):
-    # ❗ HARD FAILSAFE: ingen gyldige lenker = ingen mail
     if not items:
-        print(f"{shop}: tom liste → ingen mail sendt")
+        print(f"{shop}: ingen treff → ingen mail")
         return
 
-    # ekstra sikkerhet: sjekk at minst én faktisk URL finnes
-    has_url = any(u for _, u, _ in items if u)
+    html = "".join(
+        f"<li><a href='{u}'>{t} [{s}]</a></li>"
+        for t, u, s in items
+    )
 
-    if not has_url:
-        print(f"{shop}: ingen lenker i items → ingen mail sendt")
-        return
+    resend.Emails.send({
+        "from": "Alert <onboarding@resend.dev>",
+        "to": [EMAIL_TO],
+        "subject": f"🔥 {shop}: {len(items)} produkter",
+        "html": f"<h2>{shop}</h2><ul>{html}</ul>"
+    })
+
+    print(f"{shop}: mail sendt ({len(items)})")
+
 
 # ---------------- SCRAPER ----------------
 def scrape(page, entry_url, cache):
@@ -164,25 +146,19 @@ def scrape(page, entry_url, cache):
 
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(200)
+            page.wait_for_timeout(300)
 
             state = get_button_state(page)
             stock_signal = get_stock_signal(page)
 
-            links = page.query_selector_all("a[href]")
+            elements = page.query_selector_all("a[href]")
 
-            for el in links:
+            for el in elements:
                 try:
                     text = (el.inner_text() or "").strip()
                     href = el.get_attribute("href")
 
-                    if not text:
-                        continue
-
-                    if not is_match(text):
-                        continue
-
-                    if not href:
+                    if not text or not href:
                         continue
 
                     full_url = href
@@ -190,26 +166,22 @@ def scrape(page, entry_url, cache):
                     if href.startswith("/"):
                         full_url = "https://" + base_url_from(url) + href
 
-                    # 🔥 VIKTIG FILTER FIX
-                    if not is_valid_product_url(full_url):
+                    if not is_match(text):
                         continue
 
+                    # ---------------- CACHE (BEHOLDER, MEN BLOKKERER IKKE OUTPUT LENGER) ----------------
+                    key = full_url
                     h = make_hash(text, state, stock_signal)
 
-                    old = cache.get(full_url)
-
-                    is_new = old is None
-                    changed = old and old.get("hash") != h
-
-                    cache[full_url] = {
+                    cache[key] = {
                         "title": text,
                         "button": state,
                         "stock": stock_signal,
                         "hash": h
                     }
 
-                    if is_new or changed:
-                        items.append((text[:120], full_url, state))
+                    # 🔥 VIKTIG ENDRING: alltid legg til når match
+                    items.append((text[:120], full_url, state))
 
                 except:
                     continue
@@ -232,8 +204,8 @@ def scrape(page, entry_url, cache):
                 except:
                     pass
 
-        except Exception as e:
-            print(f"Feil på {url}: {e}")
+        except:
+            continue
 
     return items
 
@@ -263,7 +235,7 @@ def main():
                 if clean_items:
                     send_email(shop, clean_items)
                 else:
-                    print(f"{shop}: ingen gyldige produkter")
+                    print(f"{shop}: ingen treff")
 
             except Exception as e:
                 print(f"Feil {shop}: {e}")
