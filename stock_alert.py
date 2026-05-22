@@ -83,4 +83,46 @@ def extract_products(page, base_url):
 
 # ---------------- MAIN ----------------
 def main():
-    with sync
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+
+        for shop, url in SITES.items():
+            print(f"\nSjekker {shop}")
+
+            try:
+                # ---------------- LOAD + LAZY FIX ----------------
+                page.goto(url, timeout=60000)
+
+                page.wait_for_load_state("networkidle")
+                page.wait_for_timeout(2000)
+
+                # trigger lazy loading (VIKTIG for Nille / Extra Leker)
+                page.mouse.wheel(0, 3000)
+                page.wait_for_timeout(2000)
+                page.mouse.wheel(0, 3000)
+                page.wait_for_timeout(2000)
+
+                # ---------------- SCRAPE ----------------
+                products = extract_products(page, url)
+
+                seen = set()
+                unique = []
+
+                for title, link in products:
+                    if link not in seen:
+                        seen.add(link)
+                        unique.append((title, link))
+
+                print(f"{shop}: fant {len(unique)} produkter")
+
+                send_email(shop, unique)
+
+            except Exception as e:
+                print(f"Feil {shop}: {e}")
+
+        browser.close()
+
+
+if __name__ == "__main__":
+    main()
