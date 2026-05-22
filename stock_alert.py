@@ -14,76 +14,62 @@ SEARCH_URLS = {
     "Extra Leker": "https://www.extra-leker.no/search?q=pokemon"
 }
 
-# 1. Finn produktlenker fra søkesider
-def get_product_links(shop, url):
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(r.text, "html.parser")
+def get_product_links(url):
+    r = requests.get(url, headers=HEADERS, timeout=10)
+    soup = BeautifulSoup(r.text, "html.parser")
 
-        links = set()
+    links = set()
 
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
 
-            # filtrer typiske produktlenker
-            if "produkt" in href or "/p/" in href:
-                if href.startswith("/"):
-                    if shop == "Norli":
-                        href = "https://www.norli.no" + href
-                    elif shop == "Ringo":
-                        href = "https://www.ringo.no" + href
+        if "produkt" in href or "/p/" in href or "/products" in href:
+            if href.startswith("/"):
+                href = "https://www.norli.no" + href
+            links.add(href)
 
-                links.add(href)
+    return list(links)
 
-        return list(links)
+def is_in_stock(html):
+    text = html.lower()
 
-    except Exception as e:
-        print(f"Feil på {shop} søk: {e}")
-        return []
+    # alt som tyder på tilgjengelighet
+    if "utsolgt" in text:
+        return False
+    if "ikke tilgjengelig" in text:
+        return False
+    if "på lager" in text:
+        return True
+    if "legg i handlekurv" in text:
+        return True
+    if "add to cart" in text:
+        return True
 
-# 2. Sjekk ekte produkt-side
+    return None
+
 def check_product(url):
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
-        html = r.text.lower()
+    r = requests.get(url, headers=HEADERS, timeout=10)
+    return is_in_stock(r.text)
 
-        # ekte signaler
-        if "utsolgt" in html:
-            return False
-        if "ikke på lager" in html:
-            return False
-        if "legg i handlekurv" in html:
-            return True
-        if "på lager" in html:
-            return True
-
-        return None
-
-    except:
-        return None
-
-# 3. Send e-post
 def send_email(shop, url):
     resend.Emails.send({
         "from": "Pokemon Alert <onboarding@resend.dev>",
         "to": ["asifh0512@gmail.com"],
-        "subject": f"🔥 Pokémon på lager hos {shop}",
-        "html": f"<h3>{shop} har noe på lager!</h3><a href='{url}'>Åpne produkt</a>"
+        "subject": f"🔥 Pokémon mulig på lager hos {shop}",
+        "html": f"<p>Mulig tilgjengelig Pokémon-produkt</p><a href='{url}'>Åpne produkt</a>"
     })
 
 def main():
-    send_email("TEST", "https://example.com")
-    for shop, search_url in SEARCH_URLS.items():
+    for shop, url in SEARCH_URLS.items():
+        print(f"Sjekker {shop}")
 
-        print(f"Sjekker {shop}...")
+        products = get_product_links(url)
 
-        product_links = get_product_links(shop, search_url)
-
-        for product_url in product_links[:10]:  # begrensning for speed
-            status = check_product(product_url)
+        for p in products[:8]:  # holder det lett og stabilt
+            status = check_product(p)
 
             if status is True:
-                send_email(shop, product_url)
-                print("ALERT:", product_url)
+                send_email(shop, p)
+                print("ALERT:", p)
 
 main()
