@@ -238,16 +238,25 @@ def main():
             try:
                 raw_items = scrape(page, url, cache)
 
-                # CLEAN STEP (ENESTE SOURCE OF TRUTH)
-                clean_items = [
-                    (t, u, s)
-                    for t, u, s in raw_items
-                    if t and u and len(t.strip()) > 2
-                ]
+print("\n----------------------------")
+print(f"{shop} RAW ITEMS:")
+print(raw_items)
 
-                print(f"{shop}: raw={len(raw_items)} clean={len(clean_items)}")
+clean_items = [
+    (t, u, s)
+    for t, u, s in raw_items
+    if t and u and len(t.strip()) > 2
+]
 
-                send_email(shop, clean_items)
+print(f"{shop} CLEAN ITEMS COUNT: {len(clean_items)}")
+
+for i, item in enumerate(clean_items):
+    print("CLEAN:", i, item)
+
+if clean_items:
+    send_email(shop, clean_items)
+else:
+    print(f"{shop}: NO VALID ITEMS → NO EMAIL")
 
             except Exception as e:
                 print(f"Feil {shop}: {e}")
