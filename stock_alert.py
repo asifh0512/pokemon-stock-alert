@@ -49,19 +49,24 @@ def is_pokemon(text):
 def extract_products(page, base_url):
     results = []
 
-    for a in page.query_selector_all("a[href]"):
-        try:
-            text = (a.inner_text() or "").strip()
-            href = a.get_attribute("href")
+    # mer robust enn bare a-tags
+    elements = page.query_selector_all("a, div, article, li")
 
-            if not text or not href:
+    for el in elements:
+        try:
+            text = (el.inner_text() or "").strip().lower()
+            href = el.get_attribute("href")
+
+            if not text:
                 continue
 
-            if href.startswith("/"):
-                href = base_url + href
+            # finn link hvis den finnes
+            if href:
+                if href.startswith("/"):
+                    href = base_url + href
 
-            if is_pokemon(text):
-                results.append((text[:100], href))
+            if "pokemon" in text or "pokémon" in text:
+                results.append((text[:120], href or page.url))
 
         except:
             continue
