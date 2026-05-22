@@ -132,24 +132,17 @@ def is_valid_product_url(url):
 
 # ---------------- EMAIL ----------------
 def send_email(shop, items):
+    # ❗ HARD FAILSAFE: ingen gyldige lenker = ingen mail
     if not items:
-        print(f"{shop}: ingen treff → ingen mail")
+        print(f"{shop}: tom liste → ingen mail sendt")
         return
 
-    html = "".join(
-        f"<li><a href='{u}'>{t} [{s}]</a></li>"
-        for t, u, s in items
-    )
+    # ekstra sikkerhet: sjekk at minst én faktisk URL finnes
+    has_url = any(u for _, u, _ in items if u)
 
-    resend.Emails.send({
-        "from": "Alert <onboarding@resend.dev>",
-        "to": [EMAIL_TO],
-        "subject": f"🔥 {shop}: {len(items)} produkter",
-        "html": f"<h2>{shop}</h2><ul>{html}</ul>"
-    })
-
-    print(f"{shop}: mail sendt ({len(items)})")
-
+    if not has_url:
+        print(f"{shop}: ingen lenker i items → ingen mail sendt")
+        return
 
 # ---------------- SCRAPER ----------------
 def scrape(page, entry_url, cache):
