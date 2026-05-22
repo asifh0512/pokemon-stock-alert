@@ -1,8 +1,8 @@
-name: Pokemon Stock Checker
+name: Stock checker
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -10,21 +10,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Setup Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.11"
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-    - name: Install dependencies
-      run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: |
+          pip install playwright resend
+          playwright install chromium
 
-    - name: Install Playwright browsers
-      run: playwright install
-
-    - name: Run script
-      env:
-        RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-      run: python stock_alert.py
+      - name: Run script
+        run: python stock_alert.py
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
