@@ -1,24 +1,20 @@
-import smtplib
-from email.mime.text import MIMEText
+import os
+from resend import Resend
 
-# ====== ENDRE DENNE ======
-TO_EMAIL = "asifh0512@gmail.com"
-# =========================
+# Henter API-key fra GitHub Secrets
+api_key = os.environ["RESEND_API_KEY"]
+
+resend = Resend(api_key)
 
 def send_test_email():
-    msg = MIMEText("TEST: Pokemon overvåking fungerer 🎉")
-    msg["Subject"] = "TEST - Pokemon stock alert"
-    msg["From"] = TO_EMAIL
-    msg["To"] = TO_EMAIL
+    response = resend.emails.send({
+        "from": "Pokemon Alert <onboarding@resend.dev>",
+        "to": ["asifh0512@gmail.com"],
+        "subject": "TEST - Pokemon stock alert",
+        "html": "<p>🎉 Test: Resend fungerer!</p>"
+    })
 
-    # Gmail SMTP
-    server = smtplib.SMTP("smtp.gmail.com", 587)
-    server.starttls()
-
-    # OBS: du må bruke Gmail app-passord senere
-    server.login(TO_EMAIL, "PASSORD_HER")
-    server.sendmail(TO_EMAIL, TO_EMAIL, msg.as_string())
-    server.quit()
+    print(response)
 
 send_test_email()
 print("Ferdig")
