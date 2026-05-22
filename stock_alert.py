@@ -41,6 +41,11 @@ def is_match(text):
         "prismatic",
         "destined rivals",
         "ascended",
+        "paldea",
+        "surging",
+        "151",
+        "black bolt",
+        "white flare",
         "chaos rising"
     ]
     return any(k in t for k in keywords)
