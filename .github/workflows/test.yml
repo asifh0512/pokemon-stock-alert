@@ -17,4 +17,7 @@ jobs:
         python-version: '3.11'
 
     - name: Run script
+      env:
+        RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       run: python stock_alert.py
+
