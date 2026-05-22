@@ -2,7 +2,6 @@ import os
 import resend
 from playwright.sync_api import sync_playwright
 
-# API KEY (fra GitHub Secrets)
 resend.api_key = os.environ["RESEND_API_KEY"]
 
 EMAIL_TO = "asifh0512@gmail.com"
@@ -20,7 +19,7 @@ def send_email(shop, title, url):
     resend.Emails.send({
         "from": "Pokemon Alert <onboarding@resend.dev>",
         "to": [EMAIL_TO],
-        "subject": f"🔥 Pokémon funnet hos {shop}",
+        "subject": f"🔥 Produkt funnet hos {shop}",
         "html": f"""
         <h2>{shop}</h2>
         <p><b>{title}</b></p>
@@ -29,27 +28,42 @@ def send_email(shop, title, url):
     })
 
 
-# ---------------- FILTER ----------------
-def is_pokemon(text: str):
+# ---------------- FILTER (uten exclude) ----------------
+def is_pokemon_related(text: str):
     t = (text or "").lower()
-    keywords = ["pokemon", "pokémon", "booster", "tcg", "elite trainer", "charizard", "pikachu"]
-    return any(k in t for k in keywords)
+
+    include_keywords = [
+        "pokemonkort",
+        "pokémonkort",
+        "pokemon kort",
+        "pokémon kort",
+        "pokemon-kort",
+        "pokémon-kort",
+        "booster",
+        "elite trainer",
+        "tcg"
+    ]
+
+    return any(x in t for x in include_keywords)
 
 
 # ---------------- LINK EXTRACTION ----------------
-def extract_links(page):
+def extract_links(page, base_url):
     results = []
 
     for a in page.query_selector_all("a"):
         try:
-            text = a.inner_text() or ""
+            text = (a.inner_text() or "").strip()
             href = a.get_attribute("href")
 
-            if not href:
+            if not href or not text:
                 continue
 
-            if is_pokemon(text):
-                results.append((text.strip(), href))
+            if href.startswith("/"):
+                href = base_url + href
+
+            if is_pokemon_related(text):
+                results.append((text, href))
 
         except:
             continue
@@ -63,8 +77,11 @@ def check_stock(page):
 
     if "utsolgt" in html:
         return False
+    if "ikke på lager" in html:
+        return False
     if "ikke tilgjengelig" in html:
         return False
+
     if "på lager" in html:
         return True
     if "legg i handlekurv" in html:
@@ -73,26 +90,6 @@ def check_stock(page):
         return True
 
     return None
-
-
-# ---------------- URL FIX ----------------
-def fix_url(base, href):
-    if href.startswith("http"):
-        return href
-
-    if "ringo.no" in base:
-        return "https://www.ringo.no" + href
-
-    if "norli.no" in base:
-        return "https://www.norli.no" + href
-
-    if "nille.no" in base:
-        return "https://www.nille.no" + href
-
-    if "extra-leker.no" in base:
-        return "https://www.extra-leker.no" + href
-
-    return href
 
 
 # ---------------- MAIN ----------------
@@ -108,19 +105,17 @@ def main():
                 page.goto(url, timeout=60000)
                 page.wait_for_timeout(3000)
 
-                links = extract_links(page)
+                links = extract_links(page, url)
                 print(f"{shop}: fant {len(links)} kandidater")
 
                 for title, href in links[:10]:
-                    full_url = fix_url(url, href)
-
                     try:
-                        page.goto(full_url, timeout=60000)
+                        page.goto(href, timeout=60000)
                         page.wait_for_timeout(2000)
 
                         if check_stock(page):
                             print("ALERT:", title)
-                            send_email(shop, title or "Pokémon produkt", full_url)
+                            send_email(shop, title or "Produkt", href)
 
                     except:
                         continue
