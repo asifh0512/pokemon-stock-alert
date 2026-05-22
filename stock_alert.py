@@ -51,25 +51,29 @@ def is_pokemon_related(text: str):
 def extract_links(page, base_url):
     results = []
 
-    for a in page.query_selector_all("a"):
-        try:
-            text = (a.inner_text() or "").strip()
-            href = a.get_attribute("href")
+    # hent hele “cards”, ikke bare a-tags
+    cards = page.query_selector_all("a, div, article")
 
-            if not href or not text:
+    for c in cards:
+        try:
+            text = (c.inner_text() or "").strip().lower()
+            href = c.get_attribute("href")
+
+            if not text:
                 continue
 
-            if href.startswith("/"):
-                href = base_url + href
-
             if is_pokemon_related(text):
-                results.append((text, href))
+                if href:
+                    if href.startswith("/"):
+                        href = base_url + href
+                    results.append((text[:80], href))
+                else:
+                    results.append((text[:80], page.url))
 
         except:
             continue
 
     return results
-
 
 # ---------------- STOCK CHECK ----------------
 def check_stock(page):
