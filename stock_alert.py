@@ -42,7 +42,11 @@ def is_match(text):
         "destined rivals",
         "ascended",
         "chaos rising",
-        "pokemon"
+        "surging",
+        "151",
+        "paldea",
+        "perm",
+        "pokémon"
     ]
     return any(k in t for k in keywords)
 
