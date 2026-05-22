@@ -45,7 +45,7 @@ def is_match(text):
         "surging",
         "151",
         "paldea",
-        "perm",
+        "world",
         "pokémon"
     ]
     return any(k in t for k in keywords)
