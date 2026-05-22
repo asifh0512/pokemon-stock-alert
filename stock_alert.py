@@ -37,7 +37,7 @@ def send_email(shop, items):
     })
 
 
-# ---------------- NEW FILTER (SERIES ONLY) ----------------
+# ---------------- FILTER (SERIER) ----------------
 def is_match(text):
     t = (text or "").lower()
 
@@ -69,8 +69,9 @@ def extract_products(page, base_url):
             text_l = text.lower()
 
             if is_match(text_l):
-                if href and href.startswith("/"):
-                    href = base_url + href
+                if href:
+                    if href.startswith("/"):
+                        href = base_url + href
 
                 results.append((text[:120], href or page.url))
 
@@ -82,36 +83,4 @@ def extract_products(page, base_url):
 
 # ---------------- MAIN ----------------
 def main():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-
-        for shop, url in SITES.items():
-            print(f"\nSjekker {shop}")
-
-            try:
-                page.goto(url, timeout=60000)
-                page.wait_for_timeout(3000)
-
-                products = extract_products(page, url)
-
-                seen = set()
-                unique = []
-
-                for title, link in products:
-                    if link not in seen:
-                        seen.add(link)
-                        unique.append((title, link))
-
-                print(f"{shop}: fant {len(unique)} produkter")
-
-                send_email(shop, unique)
-
-            except Exception as e:
-                print(f"Feil {shop}: {e}")
-
-        browser.close()
-
-
-if __name__ == "__main__":
-    main()
+    with sync
