@@ -72,6 +72,7 @@ def send_email(shop, url):
     })
 
 def main():
+    send_email("TEST", "https://example.com")
     for shop, search_url in SEARCH_URLS.items():
 
         print(f"Sjekker {shop}...")
